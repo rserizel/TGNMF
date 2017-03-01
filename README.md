@@ -1,11 +1,11 @@
-# supervised_dl_class_1: Supervised group NMF
+# t(g)nmf: Supervised (group) NMF
 
 Task driven dictionary learning algorithm including non negative formulation [1] and group non negative formulation [2]_.
 
 
 ## Dependencies
 
-supervised_dl_class_v1 need Python >= 2.7, numpy >= 10.1, scikit-learn >= 0.18.1, spams >= 2.4 (http://spams-devel.gforge.inria.fr/) and beta-ntf (https://code.google.com/archive/p/beta-ntf/)
+t(g)nmf needs Python >= 2.7, numpy >= 10.1, scikit-learn >= 0.18.1, spams >= 2.4 (http://spams-devel.gforge.inria.fr/) and beta-ntf (https://code.google.com/archive/p/beta-ntf/)
 
 ## Documentation
 
