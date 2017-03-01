@@ -1,0 +1,789 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>supervised_dl_class_v1 &#8212; TNMF 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true,
+        SOURCELINK_SUFFIX: '.txt'
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" /> 
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">TNMF 1.0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &#187;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for supervised_dl_class_v1</h1><div class="highlight"><pre>
+<span></span><span class="c1"># -*- coding: utf-8 -*-</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">supervised_dl_class.py</span>
+<span class="sd">~~~~~~~~~~~~~~~~~~~~~~</span>
+<span class="sd">.. topic:: Contents</span>
+
+<span class="sd">    The supervised_dl_class module include the SupervisedDL class,</span>
+<span class="sd">    fit and score function</span>
+
+<span class="sd">    Created on Wed Jun 29 16:37:28 2016</span>
+
+<span class="sd">    @authors: bisot, serizel</span>
+
+<span class="sd">    .. [#] V.Bisot, R. Serizel, S. Essid, and G. Richard.</span>
+<span class="sd">        &quot;Feature Learning with Matrix Factorization Applied to</span>
+<span class="sd">        Acoustic Scene Classification&quot;.</span>
+<span class="sd">        Accepted for publication in *IEEE Transactions on Audio,</span>
+<span class="sd">        Speech and Language Processing*, 2017</span>
+
+<span class="sd">    .. [#] R. Serizel, V.Bisot, S. Essid, and G. Richard.</span>
+<span class="sd">        “Supervised group nonnegative matrix factorisation with similarity</span>
+<span class="sd">        constraints and applications to speaker identification”.</span>
+<span class="sd">        In Proc. of *2017 IEEE International Conference on Acoustics,</span>
+<span class="sd">        Speech and Signal Processing (ICASSP)*, 2017.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">spams</span>
+<span class="kn">from</span> <span class="nn">sklearn</span> <span class="k">import</span> <span class="n">decomposition</span>
+<span class="kn">import</span> <span class="nn">beta_ntf</span>
+<span class="kn">from</span> <span class="nn">sklearn</span> <span class="k">import</span> <span class="n">preprocessing</span>
+<span class="kn">from</span> <span class="nn">sklearn.metrics</span> <span class="k">import</span> <span class="n">accuracy_score</span><span class="p">,</span>  <span class="n">f1_score</span>
+<span class="kn">from</span> <span class="nn">sklearn.linear_model</span> <span class="k">import</span> <span class="n">LogisticRegression</span>
+<span class="kn">import</span> <span class="nn">random</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">copy</span>
+
+<span class="kn">from</span> <span class="nn">sklearn.utils.extmath</span> <span class="k">import</span> <span class="p">(</span>
+    <span class="n">logsumexp</span><span class="p">,</span> <span class="n">log_logistic</span><span class="p">,</span> <span class="n">safe_sparse_dot</span><span class="p">,</span>
+    <span class="n">softmax</span><span class="p">,</span> <span class="n">squared_norm</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">sklearn.utils.validation</span> <span class="k">import</span> <span class="p">(</span>
+    <span class="n">DataConversionWarning</span><span class="p">,</span>
+    <span class="n">check_X_y</span><span class="p">,</span> <span class="n">NotFittedError</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">sklearn.preprocessing</span> <span class="k">import</span> <span class="n">LabelEncoder</span><span class="p">,</span> <span class="n">LabelBinarizer</span>
+
+
+<div class="viewcode-block" id="SupervisedDL"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL">[docs]</a><span class="k">class</span> <span class="nc">SupervisedDL</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Supervised DL class</span>
+
+<span class="sd">    Task-driven Dictionary Learning with modified algorithm</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    data : array, shape (n_samples, n_features)</span>
+<span class="sd">        Training data matrix</span>
+<span class="sd">        Needs to be provided if initialization is done in the model</span>
+
+<span class="sd">    n_components : int</span>
+<span class="sd">        Size of the dictionary</span>
+
+<span class="sd">    n_labels : int</span>
+<span class="sd">        number of classes</span>
+
+<span class="sd">    pos : bool, default: True</span>
+<span class="sd">        When set to True, the model is fit in its nonnegative formulation</span>
+
+<span class="sd">    n_iter : int</span>
+<span class="sd">        Number of epochs on which to run the algorithm</span>
+
+<span class="sd">    lambda1 : float, default: 0.1</span>
+<span class="sd">        Paramter controlling the l1 norm penality for the projection step</span>
+
+<span class="sd">    lambda2 : float, default: 0</span>
+<span class="sd">        Paramter controlling the l2 norm penality for the projection step</span>
+
+<span class="sd">    rho : float, default: 0.001</span>
+<span class="sd">        Initial gradient step parameter</span>
+
+<span class="sd">    mu : float, default: 1</span>
+<span class="sd">        Regularization strenght of the classifier; must be positive.</span>
+<span class="sd">        Smaller values specify stronger regularization.</span>
+
+<span class="sd">    agreg :  int, optional (default: 1)</span>
+<span class="sd">        In the case classification is done on bags of agreg successive</span>
+<span class="sd">        projections. Every successive group of agreg  projections</span>
+<span class="sd">        (without overlapp) will be averaged before classification</span>
+
+<span class="sd">    init :  str, {&#39;random&#39;, &#39;nmf&#39;, &#39;dic-learning&#39;}</span>
+<span class="sd">        Controls the nature of the dictionary initialization.</span>
+
+<span class="sd">        * Use &#39;random&#39; for a random initalization of</span>
+<span class="sd">        * Use &#39;nmf&#39; for intializaing with nonnegative matrix factorization</span>
+<span class="sd">        * Use &#39;dic-learning&#39; to intilaize with the scikit-learn DictionaryLearning class</span>
+
+<span class="sd">    n_iter_init : int, optional</span>
+<span class="sd">        Number of iterations for the dictionary initialization</span>
+
+<span class="sd">    max_iter_init : int, optional</span>
+<span class="sd">        Maximum number of iterations for the classifier initialization</span>
+
+<span class="sd">    max_iter_inloop : int, optional</span>
+<span class="sd">        Maximum number of iterations at each epoch for the classifier update</span>
+
+<span class="sd">    batch_size : int, optional</span>
+<span class="sd">        Size of the batch (1 for stochastic gradient)</span>
+
+<span class="sd">    cls : array (n_samples, 1)</span>
+<span class="sd">        Class labels for the data</span>
+
+<span class="sd">    ses_train : array (n_samples, 1)</span>
+<span class="sd">        Session labels for the data</span>
+<span class="sd">        (Leave to 0 if sessions are not used)</span>
+
+<span class="sd">    sub_dict_size : int</span>
+<span class="sd">        Size of the sub-dictionnaries related to a unique couple (cls, ses)</span>
+<span class="sd">        See also [3]_</span>
+
+<span class="sd">    k_cls : int</span>
+<span class="sd">        Number of components that are affected to cls related bases.</span>
+<span class="sd">        See also [3]_</span>
+
+<span class="sd">    k_ses : int</span>
+<span class="sd">        Number of components that are affected to ses related bases.</span>
+<span class="sd">        See also [3]_</span>
+
+<span class="sd">    nu1 : float</span>
+<span class="sd">        Class similarity constraint</span>
+<span class="sd">        See also [3]_</span>
+
+<span class="sd">    nu2 : float</span>
+<span class="sd">        Session similarity constraint</span>
+<span class="sd">        See also [3]_</span>
+
+<span class="sd">    verbose : int</span>
+<span class="sd">        Set verbose to any positive number for verbosity.</span>
+
+<span class="sd">    Attributes</span>
+<span class="sd">    ----------</span>
+<span class="sd">    clf : object</span>
+<span class="sd">        Classifier</span>
+
+<span class="sd">    D : array</span>
+<span class="sd">        Dictionnary</span>
+
+<span class="sd">    dist_ses : array</span>
+<span class="sd">        Distance between bases related to the same session</span>
+
+<span class="sd">    dist_cls :</span>
+<span class="sd">        Distance between bases related to the same class</span>
+
+<span class="sd">    cst : array</span>
+<span class="sd">        Update constraint computed from dist_ses and dist_cls</span>
+
+<span class="sd">    References</span>
+<span class="sd">    ----------</span>
+
+<span class="sd">    .. [#] R. Serizel, S. Essid, and G. Richard.</span>
+<span class="sd">        “Group nonnegative matrix factorisation with speaker and session</span>
+<span class="sd">        variability compensation for speaker identification”.</span>
+<span class="sd">        In Proc. of *2016 IEEE International Conference on Acoustics,</span>
+<span class="sd">        Speech and Signal Processing (ICASSP)*, pp. 5470-5474, 2016.</span>
+
+<span class="sd">     &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]),</span> <span class="n">n_components</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span>
+                 <span class="n">n_labels</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">n_iter</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                 <span class="n">lambda1</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">lambda2</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">rho</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">mu</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                 <span class="n">init</span><span class="o">=</span><span class="s1">&#39;random&#39;</span><span class="p">,</span> <span class="n">n_iter_init</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">batch_size</span><span class="o">=</span><span class="mi">6250</span><span class="p">,</span>
+                 <span class="n">max_iter_init</span><span class="o">=</span><span class="mi">10</span><span class="p">,</span> <span class="n">max_iter_inloop</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                 <span class="n">cls</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">([[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]]),</span> <span class="n">ses_train</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                 <span class="n">sub_dict_size</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">k_cls</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">k_ses</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">nu1</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">nu2</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_shape</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">shape</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_components</span> <span class="o">=</span> <span class="n">n_components</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda1</span> <span class="o">=</span> <span class="n">lambda1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span> <span class="o">=</span> <span class="n">lambda2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_iter</span> <span class="o">=</span> <span class="n">n_iter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">n_labels</span> <span class="o">=</span> <span class="n">n_labels</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">init</span> <span class="o">=</span> <span class="n">init</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rho</span> <span class="o">=</span> <span class="n">rho</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mu</span> <span class="o">=</span> <span class="n">mu</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">agreg</span> <span class="o">=</span> <span class="n">agreg</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="o">=</span> <span class="n">pos</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">analysis</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">n_iter</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span> <span class="o">=</span> <span class="n">batch_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_iter_init</span> <span class="o">=</span> <span class="n">max_iter_init</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_iter_inloop</span> <span class="o">=</span> <span class="n">max_iter_inloop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">clf</span> <span class="o">=</span> <span class="n">LogisticRegression</span><span class="p">(</span>
+            <span class="n">C</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">mu</span><span class="p">,</span> <span class="n">multi_class</span><span class="o">=</span><span class="s1">&#39;multinomial&#39;</span><span class="p">,</span>
+            <span class="n">solver</span><span class="o">=</span><span class="s1">&#39;lbfgs&#39;</span><span class="p">,</span> <span class="n">max_iter</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">max_iter_init</span><span class="p">,</span> <span class="n">warm_start</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cls</span> <span class="o">=</span> <span class="n">cls</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">=</span> <span class="n">sub_dict_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span> <span class="o">=</span> <span class="n">k_cls</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span> <span class="o">=</span> <span class="n">k_ses</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nu1</span> <span class="o">=</span> <span class="n">nu1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nu2</span> <span class="o">=</span> <span class="n">nu2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ses_train</span> <span class="o">=</span> <span class="n">ses_train</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">init</span> <span class="o">==</span> <span class="s1">&#39;random&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="ow">is</span> <span class="kc">False</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                                         <span class="bp">self</span><span class="o">.</span><span class="n">n_components</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">randn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                                                <span class="bp">self</span><span class="o">.</span><span class="n">n_components</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">init</span> <span class="o">==</span> <span class="s1">&#39;NMF&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Initializing dictionnary with beta_ntf&quot;</span><span class="p">)</span>
+            <span class="n">ntf</span> <span class="o">=</span> <span class="n">beta_ntf</span><span class="o">.</span><span class="n">BetaNTF</span><span class="p">(</span><span class="n">data_shape</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">data_shape</span><span class="p">,</span>
+                                   <span class="n">n_components</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">n_components</span><span class="p">,</span>
+                                   <span class="n">n_iter</span><span class="o">=</span><span class="n">n_iter_init</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">beta</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">ntf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">ntf</span><span class="o">.</span><span class="n">factors_</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">init</span> <span class="o">==</span> <span class="s1">&#39;DictionnaryLearning&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;&quot; Initializing dictionnary</span>
+<span class="s2">                          with sklearn DictionnaryLearning&quot;&quot;&quot;</span><span class="p">)</span>
+            <span class="n">u_dl</span> <span class="o">=</span> <span class="n">decomposition</span><span class="o">.</span><span class="n">DictionaryLearning</span><span class="p">(</span>
+                <span class="n">n_components</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">n_components</span><span class="p">,</span>
+                <span class="n">alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">max_iter</span><span class="o">=</span><span class="n">n_iter_init</span><span class="p">)</span>
+            <span class="n">u_dl</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span>
+                <span class="n">u_dl</span><span class="o">.</span><span class="n">components_</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compute_cst</span><span class="p">()</span>
+
+<div class="viewcode-block" id="SupervisedDL.compute_cst"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.compute_cst">[docs]</a>    <span class="k">def</span> <span class="nf">compute_cst</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Compute the update constraints based on the distance between</span>
+<span class="sd">        session related bases and the distance between class related bases&quot;&quot;&quot;</span>
+
+        <span class="n">cls</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">cls</span>
+        <span class="n">cls_card</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])),</span> <span class="p">))</span>
+        <span class="n">cls_sum</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])),</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dist_cls</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">cls_card</span><span class="p">)):</span>
+            <span class="n">cls_card</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">cls</span><span class="p">[</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">ref_sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">,</span>
+                                    <span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">cls</span><span class="p">[</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">])[</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="n">sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">j</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">,</span>
+                                    <span class="n">j</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">)</span>
+                <span class="n">cls_sum</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">]</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dist_cls</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">ref_sub_ind</span><span class="p">])</span>
+
+        <span class="n">ses_card</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])),</span> <span class="p">))</span>
+        <span class="n">ses_sum</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">])),</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dist_ses</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ses_card</span><span class="p">)):</span>
+            <span class="n">ses_card</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">cls</span><span class="p">[</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">ref_sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                <span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">,</span>
+                <span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">cls</span><span class="p">[</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">])[</span><span class="mi">0</span><span class="p">]:</span>
+                <span class="n">sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                    <span class="n">j</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">,</span>
+                    <span class="n">j</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">)</span>
+                <span class="n">ses_sum</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="p">]</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">dist_ses</span> <span class="o">+=</span> <span class="n">np</span><span class="o">.</span><span class="n">linalg</span><span class="o">.</span><span class="n">norm</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">ref_sub_ind</span><span class="p">])</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">cst</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]):</span>
+            <span class="n">cls</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">ses</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="mi">1</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">,</span>
+                                <span class="p">(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">)</span>
+            <span class="n">D_sub</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span>
+            <span class="n">sub_cst</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">))</span>
+
+            <span class="n">sub_cst</span><span class="p">[:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu1</span> <span class="o">*</span> <span class="p">(</span>
+                <span class="n">cls_card</span><span class="p">[</span><span class="n">cls</span><span class="p">]</span> <span class="o">*</span> <span class="n">D_sub</span><span class="p">[:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">]</span> <span class="o">-</span>
+                <span class="p">(</span><span class="n">cls_sum</span><span class="p">[</span><span class="n">cls</span><span class="p">,</span> <span class="p">]</span> <span class="o">-</span> <span class="n">D_sub</span><span class="p">[:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">]))</span>
+            <span class="n">sub_cst</span><span class="p">[:,</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu2</span> <span class="o">*</span> <span class="p">(</span>
+                <span class="n">ses_card</span><span class="p">[</span><span class="n">ses</span><span class="p">]</span> <span class="o">*</span>
+                <span class="n">D_sub</span><span class="p">[:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">]</span> <span class="o">-</span>
+                <span class="p">(</span><span class="n">ses_sum</span><span class="p">[</span><span class="n">ses</span><span class="p">]</span> <span class="o">-</span> <span class="n">D_sub</span><span class="p">[:,</span> <span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">k_cls</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">k_ses</span><span class="p">]))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cst</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub_cst</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.mean_frames"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.mean_frames">[docs]</a>    <span class="k">def</span> <span class="nf">mean_frames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="mi">15</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Averages every successive group of agreg rows in the a matrix</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        X : array, shape (n_samples, n_features)</span>
+<span class="sd">            Matrix to reduce by averaging</span>
+
+<span class="sd">        agreg : int</span>
+<span class="sd">            Specifies size of the groups to average</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        X_mean: array, shape(n_samples/agreg, n_features)</span>
+<span class="sd">            Averaged matrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="n">agreg</span><span class="p">,</span> <span class="n">agreg</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.project_data"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.project_data">[docs]</a>    <span class="k">def</span> <span class="nf">project_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Projects data on the model dictionary</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        X : array, shape (n_samples, n_features)</span>
+<span class="sd">            Matrix to project on dictoonary</span>
+
+<span class="sd">        agreg : int</span>
+<span class="sd">            Specifies size of the groups to average after projection</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        projections: array, shape(n_samples/agreg, n_components)</span>
+<span class="sd">            Projection matrix</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">spams</span><span class="o">.</span><span class="n">lasso</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">X</span><span class="p">)),</span>
+                                <span class="n">D</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">),</span>
+                                <span class="n">lambda1</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda1</span><span class="p">,</span>
+                                <span class="n">lambda2</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+                                <span class="n">pos</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">pos</span><span class="p">)</span>
+        <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">agreg</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+                    <span class="n">alpha_mat</span><span class="p">,</span>
+                    <span class="p">(</span><span class="n">alpha_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="n">agreg</span><span class="p">,</span> <span class="n">agreg</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)),</span>
+                <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">alpha_mat</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.predict"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.predict">[docs]</a>    <span class="k">def</span> <span class="nf">predict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Predicts labels from a given matrix using the model classifier</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        X : array, shape (n_samples, n_features)</span>
+<span class="sd">            Matrix to project on dictoonary</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        y_pred: array, shape(n_samples/agreg,)</span>
+<span class="sd">            Predicted labels</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">alpha_mat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">project_data</span><span class="p">(</span><span class="n">X</span><span class="o">=</span><span class="n">X</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">agreg</span><span class="p">)</span>
+        <span class="n">y_pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">alpha_mat</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">y_pred</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.fit"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.fit">[docs]</a>    <span class="k">def</span> <span class="nf">fit</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">X_test</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([]),</span> <span class="n">y_test</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([])):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Fits the model to input training data</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        X_train : array, shape (n_samples, n_features)</span>
+<span class="sd">            Training data matrix</span>
+
+<span class="sd">        X_test : array, shape (n_samples_test, n_features), optional</span>
+<span class="sd">            Test data matrix</span>
+<span class="sd">            Usefull only to check performance during development</span>
+
+<span class="sd">        y_train : array-like, shape (n_samples/self.agreg,)</span>
+<span class="sd">            Target vector relative to X_train.</span>
+
+<span class="sd">        y_train : array-like, shape (n_samples_test/self.agreg,)</span>
+<span class="sd">            Target vector relative to X_test.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_iter</span><span class="p">):</span>
+
+            <span class="c1"># Classifier update step #</span>
+
+            <span class="n">tic</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="c1"># Project full data on D</span>
+            <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">spams</span><span class="o">.</span><span class="n">lasso</span><span class="p">(</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="n">X_train</span><span class="o">.</span><span class="n">T</span><span class="p">),</span>
+                <span class="n">D</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">),</span>
+                <span class="n">lambda1</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda1</span><span class="p">,</span> <span class="n">lambda2</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">,</span>
+                <span class="n">mode</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">pos</span><span class="p">)</span>
+            <span class="c1"># Average projections if necessary</span>
+            <span class="n">alpha_mean</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mean_frames</span><span class="p">(</span>
+                <span class="n">alpha_mat</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">agreg</span><span class="p">)</span>
+            <span class="n">alpha_mean</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="n">alpha_mean</span><span class="p">,</span> <span class="n">with_mean</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+            <span class="c1"># Update classifier</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">alpha_mean</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">w</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">coef_</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">b</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">intercept_</span>
+            <span class="bp">self</span><span class="o">.</span> <span class="n">compute_cst</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="c1"># Classifier is initialized on first iteration</span>
+                <span class="c1"># For further iterations, the LR class is only updated on</span>
+                <span class="c1"># 1 iteration with warm restart</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">max_iter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_iter_inloop</span>
+
+            <span class="c1"># Print current performance #</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># Print the scores</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Iteration number </span><span class="si">%i</span><span class="s2"> </span><span class="se">\n</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">i</span><span class="p">)</span>
+                <span class="n">X2</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">check_X_y</span><span class="p">(</span>
+                    <span class="n">alpha_mean</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">accept_sparse</span><span class="o">=</span><span class="s1">&#39;csr&#39;</span><span class="p">,</span>
+                    <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">,</span> <span class="n">order</span><span class="o">=</span><span class="s2">&quot;C&quot;</span><span class="p">)</span>
+                <span class="n">lbin</span> <span class="o">=</span> <span class="n">LabelBinarizer</span><span class="p">()</span>
+                <span class="n">Y_binarized</span> <span class="o">=</span> <span class="n">lbin</span><span class="o">.</span><span class="n">fit_transform</span><span class="p">(</span><span class="n">y_train</span><span class="p">)</span>
+                <span class="n">yo</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_labels</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+                <span class="n">yo</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">intercept_</span>
+                <span class="n">yo</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">coef_</span><span class="p">,</span> <span class="n">yo</span><span class="p">),</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">Y_binarized</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="n">Y_binarized</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hstack</span><span class="p">([</span><span class="mi">1</span> <span class="o">-</span> <span class="n">Y_binarized</span><span class="p">,</span> <span class="n">Y_binarized</span><span class="p">])</span>
+                <span class="n">ut</span> <span class="o">=</span> <span class="n">_multinomial_loss</span><span class="p">(</span>
+                    <span class="n">yo</span><span class="p">,</span> <span class="n">X2</span><span class="p">,</span>  <span class="n">Y_binarized</span><span class="p">,</span> <span class="mi">1</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">mu</span><span class="p">,</span>
+                    <span class="n">sample_weight</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+                <span class="n">yo</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_labels</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+                <span class="nb">print</span> <span class="s2">&quot;Classification costs: &quot;</span><span class="p">,</span> <span class="n">ut</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="nb">print</span><span class="p">(</span>
+                    <span class="s2">&quot;Class distance: &quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dist_cls</span><span class="p">,</span>
+                    <span class="s2">&quot;Session distance:&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dist_ses</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">nu1</span> <span class="o">*=</span> <span class="n">ut</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">dist_cls</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">nu2</span> <span class="o">*=</span> <span class="n">ut</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">dist_ses</span>
+                    <span class="nb">print</span> <span class="s2">&quot;Weights nu1 and nu2&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nu2</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">compute_cst</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">X_test</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                    <span class="n">a</span><span class="p">,</span> <span class="n">f1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scores</span><span class="p">(</span><span class="n">X</span><span class="o">=</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y_test</span><span class="p">)</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;&quot; Classification scores on test set:</span>
+<span class="s2">                              a=</span><span class="si">%0.3f</span><span class="s2">   f1=</span><span class="si">%0.3f</span><span class="s2">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">f1</span><span class="p">))</span>
+                <span class="n">a</span><span class="p">,</span> <span class="n">f1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scores</span><span class="p">(</span><span class="n">X</span><span class="o">=</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y_train</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;&quot; Classification scores on train set:</span>
+<span class="s2">                          a=</span><span class="si">%0.3f</span><span class="s2">   f1=</span><span class="si">%0.3f</span><span class="s2">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">f1</span><span class="p">))</span>
+
+            <span class="c1"># Dictionary update step #</span>
+
+            <span class="n">draw</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">agreg</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">y_train</span><span class="p">))</span>
+            <span class="n">random</span><span class="o">.</span><span class="n">shuffle</span><span class="p">(</span><span class="n">draw</span><span class="p">)</span>
+            <span class="n">nb_batch</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">draw</span><span class="p">)</span><span class="o">/</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nb_batch</span><span class="p">):</span>
+                <span class="c1"># Select and project a data point</span>
+
+                <span class="n">ind</span> <span class="o">=</span> <span class="n">draw</span><span class="p">[</span>
+                    <span class="n">t</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">:</span> <span class="nb">min</span><span class="p">((</span><span class="n">t</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">draw</span><span class="p">))]</span>
+                <span class="n">x_mat</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">X_train</span><span class="p">[</span><span class="n">ind</span><span class="p">,</span> <span class="p">])</span>
+                <span class="n">ind</span> <span class="o">=</span> <span class="p">[</span><span class="n">x</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">agreg</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ind</span><span class="p">]</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y_train</span><span class="p">[</span><span class="n">ind</span><span class="p">]</span>
+                <span class="n">ses</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ses_train</span><span class="p">[</span><span class="n">ind</span><span class="p">]</span>
+                <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">spams</span><span class="o">.</span><span class="n">lasso</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="n">x_mat</span><span class="p">),</span>
+                                        <span class="n">D</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">),</span>
+                                        <span class="n">lambda1</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda1</span><span class="p">,</span>
+                                        <span class="n">lambda2</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">,</span>
+                                        <span class="n">mode</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">pos</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">pos</span><span class="p">)</span>
+                <span class="n">alpha_mean</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+
+                <span class="k">if</span> <span class="n">alpha_mean</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                    <span class="c1"># Step decaying heuristic</span>
+                    <span class="n">rho_t</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">min</span><span class="p">(</span>
+                        <span class="p">[</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">rho</span><span class="p">,</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">rho</span> <span class="o">*</span> <span class="p">(</span>
+                                <span class="n">nb_batch</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">n_iter</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span>
+                                <span class="p">)</span> <span class="o">/</span> <span class="p">(</span>
+                                <span class="mi">10</span><span class="o">*</span><span class="p">(</span>
+                                    <span class="p">(</span><span class="n">i</span><span class="o">*</span><span class="n">nb_batch</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span><span class="p">)</span> <span class="o">+</span>
+                                    <span class="n">t</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))])</span>
+
+                    <span class="c1"># Gradient of loss with respect to projections</span>
+                    <span class="n">denom</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">alpha_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">))</span>
+                    <span class="n">num_alpha</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">alpha_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+                    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_labels</span><span class="p">):</span>
+                        <span class="n">tmp</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span>
+                            <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">w</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="p">:],</span> <span class="n">alpha_mean</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">b</span><span class="p">[</span><span class="n">k</span><span class="p">])</span>
+                        <span class="n">denom</span> <span class="o">+=</span> <span class="n">tmp</span>
+                        <span class="n">num_alpha</span> <span class="o">+=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">w</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="p">:][:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">],</span>
+                            <span class="n">tmp</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span><span class="o">.</span><span class="n">T</span><span class="p">))</span>
+                    <span class="n">d_alpha</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">num_alpha</span><span class="o">.</span><span class="n">T</span> <span class="o">/</span> <span class="n">denom</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">])</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">w</span><span class="p">[</span><span class="n">y</span><span class="p">,</span> <span class="p">:]</span>
+
+                    <span class="c1"># Update D</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">update_D</span><span class="p">(</span>
+                        <span class="n">x_mat</span><span class="o">=</span><span class="n">x_mat</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y</span><span class="p">,</span> <span class="n">denom</span><span class="o">=</span><span class="n">denom</span><span class="p">,</span>
+                        <span class="n">num_alpha</span><span class="o">=</span><span class="n">num_alpha</span><span class="p">,</span> <span class="n">d_alpha</span><span class="o">=</span><span class="n">d_alpha</span><span class="p">,</span>
+                        <span class="n">alpha_mat</span><span class="o">=</span><span class="n">alpha_mat</span><span class="p">,</span> <span class="n">rho_t</span><span class="o">=</span><span class="n">rho_t</span><span class="p">,</span> <span class="n">ses</span><span class="o">=</span><span class="n">ses</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="nb">print</span> <span class="s2">&quot;Iteration time&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">tic</span>
+        <span class="c1"># Print final performance #</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c1"># Print the scores</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Final model&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">X_test</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                <span class="n">a</span><span class="p">,</span> <span class="n">f1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scores</span><span class="p">(</span><span class="n">X</span><span class="o">=</span><span class="n">X_test</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y_test</span><span class="p">)</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;&quot; Classification scores on test set:</span>
+<span class="s2">                          a=</span><span class="si">%0.3f</span><span class="s2">   f1=</span><span class="si">%0.3f</span><span class="s2">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">f1</span><span class="p">))</span>
+            <span class="n">a</span><span class="p">,</span> <span class="n">f1</span><span class="p">,</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scores</span><span class="p">(</span><span class="n">X</span><span class="o">=</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="n">y_train</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;&quot;&quot; Classification scores on train set:</span>
+<span class="s2">                      a=</span><span class="si">%0.3f</span><span class="s2">   f1=</span><span class="si">%0.3f</span><span class="s2">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">f1</span><span class="p">))</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.scores"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.scores">[docs]</a>    <span class="k">def</span> <span class="nf">scores</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Compute classification scores (accurracy and F1-score).</span>
+<span class="sd">        on a given dataset.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        X_train : array, shape (n_samples, n_features)</span>
+<span class="sd">            Training data matrix</span>
+
+<span class="sd">        X_test : array, shape (n_samples_test, n_features), optional</span>
+<span class="sd">            Test data matrix</span>
+<span class="sd">            Usefull only to check performance during development</span>
+
+<span class="sd">        y_train : array-like, shape (n_samples/self.agreg,)</span>
+<span class="sd">            Target vector relative to X_train.</span>
+
+<span class="sd">        y_train : array-like, shape (n_samples_test/self.agreg,)</span>
+<span class="sd">            Target vector relative to X_test.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        y_pred: array, shape(n_samples/agreg,)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">tic</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">spams</span><span class="o">.</span><span class="n">lasso</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="n">X</span><span class="o">.</span><span class="n">T</span><span class="p">),</span>
+            <span class="n">D</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">),</span>
+            <span class="n">lambda1</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda1</span><span class="p">,</span>
+            <span class="n">lambda2</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>
+            <span class="n">pos</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">pos</span><span class="p">)</span>
+
+        <span class="n">alpha_mean</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">mean_frames</span><span class="p">(</span>
+            <span class="n">alpha_mat</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span><span class="o">.</span><span class="n">T</span><span class="p">,</span> <span class="n">agreg</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">agreg</span><span class="p">)</span>
+        <span class="n">alpha_mean</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span>
+            <span class="n">alpha_mean</span><span class="p">,</span> <span class="n">with_mean</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="n">y_pred</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clf</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">alpha_mean</span><span class="p">)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">accuracy_score</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">)</span>
+        <span class="n">f1</span> <span class="o">=</span> <span class="n">f1_score</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">y_pred</span><span class="p">,</span> <span class="n">average</span><span class="o">=</span><span class="s1">&#39;weighted&#39;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">a</span><span class="p">,</span> <span class="n">f1</span></div>
+
+<div class="viewcode-block" id="SupervisedDL.update_D"><a class="viewcode-back" href="../doc.html#supervised_dl_class_v1.SupervisedDL.update_D">[docs]</a>    <span class="k">def</span> <span class="nf">update_D</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x_mat</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">alpha_mat</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">denom</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">num_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                 <span class="n">d_alpha</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">rho_t</span><span class="o">=</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">ses</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Updates dictionary</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        x_mat : array shape (n_features, batch_size)</span>
+<span class="sd">            Input data (batch_size = 1 in the stochastic gradient case)</span>
+
+<span class="sd">        y : array shape (batch_size, )</span>
+<span class="sd">            Labels corresponding to the input data</span>
+
+<span class="sd">        alpha_mat : array shape (batch_size, n_components)</span>
+<span class="sd">            Projections</span>
+
+<span class="sd">        d_alpha : array shape (batch_size, n_components)</span>
+<span class="sd">            Gradient of loss with respect to projections</span>
+
+<span class="sd">        denom : array shape (n_components, )</span>
+<span class="sd">            Gradient denominator</span>
+
+<span class="sd">        num_alpha : array (batch_size, n_components)</span>
+<span class="sd">            Gradient numerator</span>
+
+<span class="sd">        rho_t : float</span>
+<span class="sd">            Learning rate</span>
+
+<span class="sd">        ses : array (batch_size, )</span>
+<span class="sd">            Session labels for the data</span>
+<span class="sd">            (Leave to 0 if sessions are not used)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">non_zero</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="o">.</span><span class="n">nonzero</span><span class="p">()</span>
+        <span class="n">beta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">num_alpha</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="n">beta_sub</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">num_alpha</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="n">n_nan</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">tot_loop</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">lr_weight</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">beta</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">))</span>
+        <span class="n">alpha_mat</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="o">.</span><span class="n">toarray</span><span class="p">()</span>
+        <span class="n">alpha_mat_sub</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">alpha_mat</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_alpha</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+            <span class="n">cls_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+                <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">y</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="o">&amp;</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cls</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">ses</span><span class="p">[</span><span class="n">i</span><span class="p">])))[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cls_ind</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">,</span>
+                                <span class="p">(</span><span class="n">cls_ind</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">)</span>
+            <span class="n">ind</span> <span class="o">=</span> <span class="n">non_zero</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="n">non_zero</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">i</span><span class="p">]</span>
+            <span class="n">lr_weight</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">alpha_mat_sub</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">sub_ind</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">tot_loop</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">beta</span><span class="p">[</span><span class="n">ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+                    <span class="n">spams</span><span class="o">.</span><span class="n">invSym</span><span class="p">(</span>
+                        <span class="n">np</span><span class="o">.</span><span class="n">asfortranarray</span><span class="p">(</span>
+                            <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+                                <span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">ind</span><span class="p">]),</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">ind</span><span class="p">])</span> <span class="o">+</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">)),</span>
+                    <span class="n">d_alpha</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">ind</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">amax</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">beta</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]))):</span>
+                    <span class="n">n_nan</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">beta</span><span class="p">[</span><span class="n">ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">beta</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+                <span class="n">beta_sub</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">beta</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">sub_ind</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">tot_loop</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="n">beta</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+                    <span class="mf">1.</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">]),</span>
+                               <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[:,</span> <span class="n">sub_ind</span><span class="p">])</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">lambda2</span><span class="p">),</span>
+                    <span class="n">d_alpha</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">ind</span><span class="p">])</span>
+                <span class="n">alpha_mat_sub</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">alpha_mat</span><span class="p">[</span><span class="n">sub_ind</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">tot_loop</span><span class="o">/</span><span class="p">(</span><span class="n">n_nan</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="nb">print</span> <span class="s2">&quot;Warning nan occurence&quot;</span><span class="p">,</span> <span class="n">n_nan</span><span class="p">,</span> <span class="s2">&quot;total loops&quot;</span><span class="p">,</span> <span class="n">tot_loop</span>
+        <span class="n">d_D</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">x_mat</span><span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">,</span> <span class="n">alpha_mat_sub</span><span class="p">)),</span> <span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">beta_sub</span><span class="p">))</span>
+        <span class="n">d_D</span> <span class="o">-=</span> <span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">dot</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">,</span> <span class="n">beta_sub</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="n">alpha_mat_sub</span><span class="p">))</span>
+
+        <span class="n">sub_ind</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">cls_ind</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">,</span>
+                            <span class="p">(</span><span class="n">cls_ind</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">sub_dict_size</span><span class="p">)</span>
+        <span class="n">rho_t</span> <span class="o">*=</span> <span class="n">lr_weight</span><span class="o">/</span><span class="bp">self</span><span class="o">.</span><span class="n">batch_size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">-</span> <span class="n">rho_t</span> <span class="o">*</span> <span class="n">d_D</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">cst</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pos</span> <span class="ow">is</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">)]</span> <span class="o">=</span> <span class="mf">0.0000001</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">D</span> <span class="o">=</span> <span class="n">preprocessing</span><span class="o">.</span><span class="n">normalize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">D</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span></div></div>
+
+
+<span class="k">def</span> <span class="nf">_multinomial_loss</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">Y</span><span class="p">,</span> <span class="n">alpha</span><span class="p">,</span> <span class="n">sample_weight</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Computes multinomial loss and class probabilities.</span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    w : ndarray, shape (n_classes * n_features,) or</span>
+<span class="sd">        (n_classes * (n_features + 1),)</span>
+<span class="sd">        Coefficient vector.</span>
+<span class="sd">    X : {array-like, sparse matrix}, shape (n_samples, n_features)</span>
+<span class="sd">        Training data.</span>
+<span class="sd">    Y : ndarray, shape (n_samples, n_classes)</span>
+<span class="sd">        Transformed labels according to the output of LabelBinarizer.</span>
+<span class="sd">    alpha : float</span>
+<span class="sd">        Regularization parameter. alpha is equal to 1 / C.</span>
+<span class="sd">    sample_weight : array-like, shape (n_samples,) optional</span>
+<span class="sd">        Array of weights that are assigned to individual samples.</span>
+<span class="sd">        If not provided, then each sample is given unit weight.</span>
+<span class="sd">    Returns</span>
+<span class="sd">    -------</span>
+<span class="sd">    loss : float</span>
+<span class="sd">        Multinomial loss.</span>
+<span class="sd">    p : ndarray, shape (n_samples, n_classes)</span>
+<span class="sd">        Estimated class probabilities.</span>
+<span class="sd">    w : ndarray, shape (n_classes, n_features)</span>
+<span class="sd">        Reshaped param vector excluding intercept terms.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">n_classes</span> <span class="o">=</span> <span class="n">Y</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">n_features</span> <span class="o">=</span> <span class="n">X</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">fit_intercept</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="p">(</span><span class="n">n_classes</span> <span class="o">*</span> <span class="p">(</span><span class="n">n_features</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+    <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n_classes</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">sample_weight</span> <span class="o">=</span> <span class="n">sample_weight</span><span class="p">[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">fit_intercept</span><span class="p">:</span>
+        <span class="n">intercept</span> <span class="o">=</span> <span class="n">w</span><span class="p">[:,</span> <span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">intercept</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">safe_sparse_dot</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">w</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+    <span class="n">p</span> <span class="o">+=</span> <span class="n">intercept</span>
+    <span class="n">p</span> <span class="o">-=</span> <span class="n">logsumexp</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)[:,</span> <span class="n">np</span><span class="o">.</span><span class="n">newaxis</span><span class="p">]</span>
+    <span class="n">loss</span> <span class="o">=</span> <span class="o">-</span><span class="p">(</span><span class="n">sample_weight</span> <span class="o">*</span> <span class="n">Y</span> <span class="o">*</span> <span class="n">p</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+    <span class="n">loss</span> <span class="o">+=</span> <span class="mf">0.5</span> <span class="o">*</span> <span class="n">alpha</span> <span class="o">*</span> <span class="n">squared_norm</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">p</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">loss</span><span class="p">,</span> <span class="n">p</span><span class="p">,</span> <span class="n">w</span>
+
+
+<span class="k">def</span> <span class="nf">_intercept_dot</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">X</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Computes y * np.dot(X, w).</span>
+<span class="sd">    It takes into consideration if the intercept should be fit or not.</span>
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    w : ndarray, shape (n_features,) or (n_features + 1,)</span>
+<span class="sd">        Coefficient vector.</span>
+<span class="sd">    X : {array-like, sparse matrix}, shape (n_samples, n_features)</span>
+<span class="sd">        Training data.</span>
+<span class="sd">    y : ndarray, shape (n_samples,)</span>
+<span class="sd">        Array of labels.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="mf">0.</span>
+    <span class="k">if</span> <span class="n">w</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="n">X</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">w</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="n">w</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="n">z</span> <span class="o">=</span> <span class="n">safe_sparse_dot</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span> <span class="o">+</span> <span class="n">c</span>
+    <span class="k">return</span> <span class="n">w</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">y</span> <span class="o">*</span> <span class="n">z</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <div><input type="text" name="q" /></div>
+      <div><input type="submit" value="Go" /></div>
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">TNMF 1.0 documentation</a> &#187;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" >Module code</a> &#187;</li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2017, Victor Bisot, Romain Serizel.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.5.1.
+    </div>
+  </body>
+</html>
