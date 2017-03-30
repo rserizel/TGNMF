@@ -12,7 +12,7 @@ tnmf.py
 
     @authors: bisot, serizel
     
-    Copyright 2014-2017 Victor Bisot, Romain Serizel
+    Copyright 2016-2017 Victor Bisot, Romain Serizel
     This software is distributed under the terms of the GNU Public License
     version 3 (http://www.gnu.org/licenses/gpl.txt)
 
