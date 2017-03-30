@@ -11,6 +11,10 @@ tnmf.py
     Created on Wed Jun 29 16:37:28 2016
 
     @authors: bisot, serizel
+    
+    Copyright 2014-2017 Victor Bisot, Romain Serizel
+    This software is distributed under the terms of the GNU Public License
+    version 3 (http://www.gnu.org/licenses/gpl.txt)
 
     .. [#] V.Bisot, R. Serizel, S. Essid, and G. Richard.
         "Feature Learning with Matrix Factorization Applied to
