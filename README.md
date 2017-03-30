@@ -57,5 +57,6 @@ Victor Bisot and Romain Serizel, 2017 -- Present
 ## License
 
 Copyright 2016-2017 Victor Bisot, Romain Serizel
+
 This software is distributed under the terms of the GNU Public License
 version 3 (http://www.gnu.org/licenses/gpl.txt)
